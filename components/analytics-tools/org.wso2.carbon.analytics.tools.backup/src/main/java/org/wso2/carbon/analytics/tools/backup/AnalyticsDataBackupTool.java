@@ -92,7 +92,7 @@ public class AnalyticsDataBackupTool {
 		                               .create("batch"));
 
 		// testing the args
-		args = new String[] { "script", "-backupFileSystem", "-dir", "." };
+		args = new String[] { "script", "-restoreFileSystem", "-dir", "/home/sachith/git/carbon-analytics/temp" };
 
 		CommandLineParser parser = new BasicParser();
 		CommandLine line = parser.parse(options, args);
@@ -172,7 +172,9 @@ public class AnalyticsDataBackupTool {
 				backupFileSystem(analyticsFileSystem, tenantId, baseDir, timeFrom, timeTo, specificTables);
 			} else if (line.hasOption("restore")) {
 				restore(service, tenantId, baseDir, timeFrom, timeTo, specificTables);
-			}
+			}else if (line.hasOption("restoreFileSystem")) {
+                restoreFileSystem(analyticsFileSystem,baseDir);
+            }
 			System.out.println("Done.");
 		} finally {
 			if (service != null) {
@@ -202,13 +204,13 @@ public class AnalyticsDataBackupTool {
 	                                                                                throws IOException {
 		if (specificTables != null) {
 			for (String specificTable : specificTables) {
-				restoreTable(service, tenantId, specificTable, baseDir, timeFrom, timeTo);
+                restoreTable(service, tenantId, specificTable, baseDir, timeFrom, timeTo);
 			}
 		} else {
 			String[] tables = baseDir.list();
 			System.out.println(tables.length + " table(s) available.");
-			for (String table : tables) {
-				restoreTable(service, tenantId, table, baseDir, timeFrom, timeTo);
+            for (String table : tables) {
+                restoreTable(service, tenantId, table, baseDir, timeFrom, timeTo);
 			}
 		}
 	}
@@ -275,13 +277,13 @@ public class AnalyticsDataBackupTool {
 
 	private static void backupTable(AnalyticsDataService service, int tenantId, String table,
 	                                File basedir, long timeFrom, long timeTo) {
-		try {
+        try {
 			System.out.print("Backing up table '" + table + "'..");
 			File myDir = new File(basedir.getAbsolutePath() + File.separator + table);
 			if (!myDir.exists()) {
 				myDir.mkdir();
-			}
-			AnalyticsSchema schema = service.getTableSchema(tenantId, table);
+            }
+            AnalyticsSchema schema = service.getTableSchema(tenantId, table);
 			writeTableSchema(schema, myDir.getAbsolutePath());
 			AnalyticsDataResponse resp =
 			                             service.get(tenantId, table, 1, null, timeFrom, timeTo, 0,
@@ -384,9 +386,66 @@ public class AnalyticsDataBackupTool {
 
 	private static void backupFileSystem(AnalyticsFileSystem analyticsFileSystem, int tenantId, File baseDir,
 	                                     long timeFrom, long timeTo, String[] specificTables) throws IOException {
-        System.out.println(analyticsFileSystem.list("."));
     }
 
+    private static void restoreFileSystem(AnalyticsFileSystem analyticsFileSystem, File baseDir) throws IOException {
+		System.out.println("Restoring the file system with the baseDir: "+baseDir);
+        restoreFileStructure(analyticsFileSystem, baseDir, baseDir);
+    }
+
+	/**
+	 * Recursively travels through the filestructure and restores them
+	 * @param analyticsFileSystem
+	 * @param node
+	 * @param baseDir
+	 * @throws IOException
+	 */
+    public static void restoreFileStructure(AnalyticsFileSystem analyticsFileSystem, File node,File baseDir) throws IOException {
+
+		//get the relative path
+		final String relativePath = node.getAbsolutePath().substring(baseDir.getParent().length());
+
+        if(node.isDirectory()){
+            analyticsFileSystem.mkdir(relativePath);
+			String[] subNote = node.list();
+            for(String filename : subNote){
+                restoreFileStructure(analyticsFileSystem,new File(node, filename),baseDir);
+            }
+        }else if(node.isFile()){
+            OutputStream out = analyticsFileSystem.createOutput(relativePath);
+			byte[] data = readFile(node);
+            out.write(data, 0, data.length);
+            out.flush();
+            out.close();
+        }
+
+    }
+
+	/**
+	 * Read the file into a byte array
+	 * @param file
+	 * @return
+	 * @throws IOException
+	 */
+	public static byte[] readFile(File file) throws IOException {
+
+		byte []buffer = new byte[(int) file.length()];
+		InputStream inputStream = null;
+		try {
+			inputStream = new FileInputStream(file);
+			if ( inputStream.read(buffer) == -1 ) {
+				throw new IOException("EOF reached while trying to read the whole file");
+			}
+		} finally {
+			try {
+				if ( inputStream != null )
+					inputStream.close();
+			} catch ( IOException e) {
+			}
+		}
+
+		return buffer;
+	}
     /**
      * returning a map of properties read from the config
      * @param props
