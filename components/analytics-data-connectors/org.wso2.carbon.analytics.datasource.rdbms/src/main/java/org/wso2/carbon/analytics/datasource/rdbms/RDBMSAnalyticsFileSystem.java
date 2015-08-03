@@ -241,7 +241,8 @@ public class RDBMSAnalyticsFileSystem implements AnalyticsFileSystem {
 
     @Override
     public List<String> list(String path) throws IOException {
-        path = GenericUtils.normalizePath(path);
+        //todo resolve this comment
+//        path = GenericUtils.normalizePath(path);
         Connection conn = null;
         try {
             conn = this.getConnection();
@@ -261,8 +262,9 @@ public class RDBMSAnalyticsFileSystem implements AnalyticsFileSystem {
             stmt.setString(1, path);
             rs = stmt.executeQuery();
             List<String> result = new ArrayList<String>();
+            int trimLength = path.equals("/") ? 1 : path.length() + 1;
             while (rs.next()) {
-                result.add(rs.getString(1).substring(path.length() + 1));
+                result.add(rs.getString(1).substring(trimLength));
             }
             return result;
         } catch (SQLException e) {
