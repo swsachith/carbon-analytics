@@ -243,7 +243,8 @@ public class RDBMSAnalyticsFileSystem implements AnalyticsFileSystem {
 
     @Override
     public List<String> list(String path) throws IOException {
-        path = GenericUtils.normalizePath(path);
+        //todo resolve this issue
+        //path = GenericUtils.normalizePath(path);
         Connection conn = null;
         try {
             conn = this.getConnection();

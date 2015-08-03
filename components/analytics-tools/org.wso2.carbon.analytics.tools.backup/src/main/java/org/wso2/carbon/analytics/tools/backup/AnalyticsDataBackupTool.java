@@ -40,6 +40,17 @@ import org.wso2.carbon.analytics.datasource.core.fs.AnalyticsFileSystem;
 import org.wso2.carbon.analytics.datasource.core.util.GenericUtils;
 import org.wso2.carbon.base.MultitenantConstants;
 
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.List;
+
 /**
  * This class represents a tool to backup and restore and re-index analytics
  * data.
@@ -53,12 +64,9 @@ public class AnalyticsDataBackupTool {
     private static int batchSize = RECORD_BATCH_SIZE;
     private static final int READ_BUFFER_SIZE = 10;
     private static boolean forceIndexing = false;
-
+    
     @SuppressWarnings("static-access")
     public static void main(String[] args) throws Exception {
-        System.setProperty(GenericUtils.WSO2_ANALYTICS_CONF_DIRECTORY_SYS_PROP,
-                "/home/sachith/git/carbon-analytics/components/analytics-tools/org.wso2.carbon.analytics.tools.backup/src/main/conf");
-
         String timePattern = "yy-mm-dd hh:mm:ss";
         Options options = new Options();
         options.addOption(new Option("backupAnalytics", false, "backup analytics data"));
@@ -68,29 +76,18 @@ public class AnalyticsDataBackupTool {
         options.addOption(new Option("restoreFileSystem", false, "restores filesystem data"));
 
         options.addOption(new Option("enableIndexing", false, "enables indexing while restoring"));
-        options.addOption(OptionBuilder.withArgName("directory").hasArg()
-                .withDescription("source/target directory").create("dir"));
-        options.addOption(OptionBuilder.withArgName("table list")
-                .hasArg()
-                .withDescription("analytics tables (comma separated) to backup/restore")
-                .create("tables"));
-        options.addOption(OptionBuilder.withArgName(timePattern)
-                .hasArg()
-                .withDescription("consider records from this time (inclusive)")
-                .create("timefrom"));
-        options.addOption(OptionBuilder.withArgName(timePattern)
-                .hasArg()
-                .withDescription("consider records to this time (non-inclusive)")
-                .create("timeto"));
-        options.addOption(OptionBuilder.withArgName("tenant id (default is super tenant)")
-                .hasArg()
-                .withDescription("specify tenant id of the tenant considered")
-                .create("tenant_id"));
-        options.addOption(OptionBuilder.withArgName("restore record batch size (default is 1000)")
-                .hasArg()
-                .withDescription("specify the number of records per batch for backup")
-                .create("batch"));
-
+        options.addOption(OptionBuilder.withArgName("directory").hasArg().withDescription(
+                "source/target directory").create("dir"));
+        options.addOption(OptionBuilder.withArgName("table list").hasArg().withDescription(
+                "analytics tables (comma separated) to backup/restore").create("tables"));
+        options.addOption(OptionBuilder.withArgName(timePattern).hasArg().withDescription(
+                "consider records from this time (inclusive)").create("timefrom"));
+        options.addOption(OptionBuilder.withArgName(timePattern).hasArg().withDescription(
+                "consider records to this time (non-inclusive)").create("timeto"));
+        options.addOption(OptionBuilder.withArgName("tenant id (default is super tenant)").hasArg().withDescription(
+                "specify tenant id of the tenant considered").create("tenant_id"));
+        options.addOption(OptionBuilder.withArgName("restore record batch size (default is 1000)").hasArg().withDescription(
+                "specify the number of records per batch for backup").create("batch"));
         CommandLineParser parser = new BasicParser();
         CommandLine line = parser.parse(options, args);
         if (args.length < 2) {
@@ -99,8 +96,7 @@ public class AnalyticsDataBackupTool {
         }
         if (line.hasOption("restore")) {
             if (line.hasOption("enableIndexing")) {
-                System.setProperty(AnalyticsServiceHolder.FORCE_INDEXING_ENV_PROP,
-                        Boolean.TRUE.toString());
+                System.setProperty(AnalyticsServiceHolder.FORCE_INDEXING_ENV_PROP, Boolean.TRUE.toString());
                 forceIndexing = true;
             }
         }
@@ -121,7 +117,6 @@ public class AnalyticsDataBackupTool {
             analyticsFileSystem.init(convertToMap(config.getAnalyticsFileSystemConfiguration()
                     .getProperties()));
             service = AnalyticsServiceHolder.getAnalyticsDataService();
-
             int tenantId;
             if (line.hasOption("tenant_id")) {
                 tenantId = Integer.parseInt(args[2]);
