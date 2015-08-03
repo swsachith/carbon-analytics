@@ -45,12 +45,13 @@ import org.wso2.carbon.analytics.datasource.core.util.GenericUtils;
  */
 public class AnalyticsDataBackupTool {
 
-    private static final String TABLE_SCHEMA_FILE_NAME = "__TABLE_SCHEMA__";
-    private static final String ANALYTICS_DS_CONFIG_FILE = "analytics-config.xml";
-    private static final int INDEX_PROCESS_WAIT_TIME = -1;
-    private static final int RECORD_BATCH_SIZE = 1000;
-    private static int batchSize = RECORD_BATCH_SIZE;
-    private static boolean forceIndexing = false;
+	private static final String TABLE_SCHEMA_FILE_NAME = "__TABLE_SCHEMA__";
+	private static final String ANALYTICS_DS_CONFIG_FILE = "analytics-config.xml";
+	private static final int INDEX_PROCESS_WAIT_TIME = -1;
+	private static final int RECORD_BATCH_SIZE = 1000;
+	private static int batchSize = RECORD_BATCH_SIZE;
+	private static final int READ_BUFFER_SIZE = 10;
+	private static boolean forceIndexing = false;
 
     @SuppressWarnings("static-access")
     public static void main(String[] args) throws Exception {
@@ -61,11 +62,9 @@ public class AnalyticsDataBackupTool {
         Options options = new Options();
         options.addOption(new Option("backupAnalytics", false, "backup analytics data"));
         options.addOption(new Option("backupFileSystem", false, "backup filesystem data"));
-        options.addOption(new Option("backup", false, "backup all the data"));
 
         options.addOption(new Option("restoreAnalytics", false, "restores analytics data"));
         options.addOption(new Option("restoreFileSystem", false, "restores filesystem data"));
-        options.addOption(new Option("restore", false, "restores all the data"));
 
         options.addOption(new Option("enableIndexing", false, "enables indexing while restoring"));
         options.addOption(OptionBuilder.withArgName("directory").hasArg()
@@ -91,8 +90,13 @@ public class AnalyticsDataBackupTool {
                 .withDescription("specify the number of records per batch for backup")
                 .create("batch"));
 
-        // testing the args
-        args = new String[]{"script", "-backupFileSystem", "-dir", "/home/sachith/git/carbon-analytics/temp"};
+		// todo remove this ...
+		// testing the args
+		args =
+		       new String[] { "script", "-backupFileSystem", "-dir",
+		                     "/home/sachith/git/carbon-analytics/test" };
+		// args = new String[] { "script", "-restoreFileSystem", "-dir",
+		// "/home/sachith/git/carbon-analytics/temp" };
 
         CommandLineParser parser = new BasicParser();
         CommandLine line = parser.parse(options, args);
@@ -166,12 +170,12 @@ public class AnalyticsDataBackupTool {
                     (specificTables != null ? (" [table=" +
                             Arrays.toString(specificTables) + "]")
                             : "") + "...");
-            if (line.hasOption("backup")) {
-                backup(service, tenantId, baseDir, timeFrom, timeTo, specificTables);
+            if (line.hasOption("backupAnalytics")) {
+                backupAnalytics(service, tenantId, baseDir, timeFrom, timeTo, specificTables);
             } else if (line.hasOption("backupFileSystem")) {
-                backupFileSystem(analyticsFileSystem, tenantId, baseDir, timeFrom, timeTo, specificTables);
-            } else if (line.hasOption("restore")) {
-                restore(service, tenantId, baseDir, timeFrom, timeTo, specificTables);
+                backupFileSystem(analyticsFileSystem, tenantId, baseDir);
+            } else if (line.hasOption("restoreAnalytics")) {
+                restoreAnalytics(service, tenantId, baseDir, timeFrom, timeTo, specificTables);
             } else if (line.hasOption("restoreFileSystem")) {
                 restoreFileSystem(analyticsFileSystem, baseDir);
             }
@@ -186,8 +190,8 @@ public class AnalyticsDataBackupTool {
         }
     }
 
-    private static void backup(AnalyticsDataService service, int tenantId, File baseDir,
-                               long timeFrom, long timeTo, String[] specificTables)
+    private static void backupAnalytics(AnalyticsDataService service, int tenantId, File baseDir,
+                                        long timeFrom, long timeTo, String[] specificTables)
             throws AnalyticsException {
         if (specificTables != null) {
             for (String specificTable : specificTables) {
@@ -202,8 +206,8 @@ public class AnalyticsDataBackupTool {
         }
     }
 
-    private static void restore(AnalyticsDataService service, int tenantId, File baseDir,
-                                long timeFrom, long timeTo, String[] specificTables)
+    private static void restoreAnalytics(AnalyticsDataService service, int tenantId, File baseDir,
+                                         long timeFrom, long timeTo, String[] specificTables)
             throws IOException {
         if (specificTables != null) {
             for (String specificTable : specificTables) {
@@ -386,34 +390,65 @@ public class AnalyticsDataBackupTool {
         }
     }
 
+	/**
+	 * Backs up the file system to Local
+	 * 
+	 * @param analyticsFileSystem
+	 * @param tenantId
+	 * @param baseDir
+	 * @throws IOException
+	 */
+	private static void backupFileSystem(AnalyticsFileSystem analyticsFileSystem, int tenantId,
+	                                     File baseDir) throws IOException {
+		System.out.println("Backing up the filesystem to: " + baseDir);
+		backupFileSystemToLocal(analyticsFileSystem, "/", baseDir.getAbsolutePath());
+	}
 
-    private static void backupFileSystem(AnalyticsFileSystem analyticsFileSystem, int tenantId, File baseDir,
-                                         long timeFrom, long timeTo, String[] specificTables) throws IOException {
-        System.out.println(analyticsFileSystem.list("/temp"));
+	/**
+	 * Backing up the filesystem to the local recursively
+	 * @param analyticsFileSystem
+	 * @param path
+	 * @param baseDir
+	 * @throws IOException
+	 */
+	private static void backupFileSystemToLocal(AnalyticsFileSystem analyticsFileSystem,
+	                                            String path, String baseDir) throws IOException {
+		List<String> nodeList = analyticsFileSystem.list(path);
+		String parent_path = (path.equals("/")) ? path : path + File.separator;
+		String node_path = "";
 
-    }
+		for (String node : nodeList) {
+			node_path = parent_path + node;
+			if (analyticsFileSystem.length(node_path) == 0) { // the node is a
+															  // directory
+				createDirectoryInLocalSystem(baseDir + File.separator + node_path);
+				backupFileSystemToLocal(analyticsFileSystem, node_path, baseDir);
 
-    private static void backupFileSystemToLocal(AnalyticsFileSystem analyticsFileSystem, File node) throws IOException {
-        if (node.isDirectory()) {
-            //create the directories
-            if (!node.exists())
-                node.mkdir();
+			} else { // the node is a file
+				AnalyticsFileSystem.DataInput input = analyticsFileSystem.createInput(node_path);
+				byte[] dataInBuffer = new byte[READ_BUFFER_SIZE];
+				int i;
+				FileOutputStream out = new FileOutputStream(baseDir+node_path);
+				while ((i = input.read(dataInBuffer, 0, dataInBuffer.length)) > 0) {
+					out.write(dataInBuffer);
+				}
+				out.close();
+			}
+		}
+	}
 
-            List<String> subNodes = analyticsFileSystem.list(node.getPath());
-            for (String subnode : subNodes) {
-                backupFileSystemToLocal(analyticsFileSystem, new File(node.getPath() + File.separator + subnode));
-            }
-        } else if (node.isFile()) {
-            //write file to the local filesystem
-            AnalyticsFileSystem.DataInput in = analyticsFileSystem.createInput(node.getPath());
-            FileWriter writer = new FileWriter(node);
-        }
-    }
-
-    private static void restoreFileSystem(AnalyticsFileSystem analyticsFileSystem, File baseDir) throws IOException {
-        System.out.println("Restoring the file system with the Directory: " + baseDir);
-        restoreFileStructure(analyticsFileSystem, baseDir, baseDir);
-    }
+	/**
+	 * Restores the a local filesystem to the DAS filesystem
+	 * 
+	 * @param analyticsFileSystem
+	 * @param baseDir
+	 * @throws IOException
+	 */
+	private static void restoreFileSystem(AnalyticsFileSystem analyticsFileSystem, File baseDir)
+	                                                                                            throws IOException {
+		System.out.println("Restoring the file system with the Directory: " + baseDir);
+		restoreFileStructure(analyticsFileSystem, baseDir, baseDir);
+	}
 
     /**
      * Recursively travels through the filestructure and restores them
@@ -509,4 +544,16 @@ public class AnalyticsDataBackupTool {
         }
     }
 
+	/**
+	 * Creates a directory in the local file system for the given path
+	 * 
+	 * @param path
+	 */
+	private static void createDirectoryInLocalSystem(String path) {
+		File dir = new File(path);
+		// if the directory does not exist, create it
+		if (!dir.exists()) {
+			dir.mkdir();
+		}
+	}
 }
