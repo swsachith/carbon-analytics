@@ -64,7 +64,7 @@ public class AnalyticsDataBackupTool {
     private static int batchSize = RECORD_BATCH_SIZE;
     private static final int READ_BUFFER_SIZE = 10;
     private static boolean forceIndexing = false;
-    
+
     @SuppressWarnings("static-access")
     public static void main(String[] args) throws Exception {
         String timePattern = "yy-mm-dd hh:mm:ss";
