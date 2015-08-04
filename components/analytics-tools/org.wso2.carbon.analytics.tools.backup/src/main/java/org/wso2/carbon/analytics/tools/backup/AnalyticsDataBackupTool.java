@@ -38,6 +38,7 @@ import org.wso2.carbon.analytics.datasource.commons.exception.AnalyticsException
 import org.wso2.carbon.analytics.datasource.core.AnalyticsDataSourceConstants;
 import org.wso2.carbon.analytics.datasource.core.fs.AnalyticsFileSystem;
 import org.wso2.carbon.analytics.datasource.core.util.GenericUtils;
+import org.wso2.carbon.base.MultitenantConstants;
 
 /**
  * This class represents a tool to backup and restore and re-index analytics
@@ -90,14 +91,6 @@ public class AnalyticsDataBackupTool {
                 .withDescription("specify the number of records per batch for backup")
                 .create("batch"));
 
-        // todo remove this ...
-        // testing the args
-        args =
-                new String[] { "script", "-backupFileSystem", "-dir",
-                        "/home/sachith/git/carbon-analytics/test" };
-        // args = new String[] { "script", "-restoreFileSystem", "-dir",
-        // "/home/sachith/git/carbon-analytics/temp" };
-
         CommandLineParser parser = new BasicParser();
         CommandLine line = parser.parse(options, args);
         if (args.length < 2) {
@@ -133,9 +126,7 @@ public class AnalyticsDataBackupTool {
             if (line.hasOption("tenant_id")) {
                 tenantId = Integer.parseInt(args[2]);
             } else {
-                // TODO remove the hardcoding of the tenant id
-                // tenantId = MultitenantConstants.SUPER_TENANT_ID;
-                tenantId = -1234;
+                 tenantId = MultitenantConstants.SUPER_TENANT_ID;
             }
             SimpleDateFormat dateFormat = new SimpleDateFormat(timePattern);
             long timeFrom = Long.MIN_VALUE;
