@@ -1671,7 +1671,9 @@ public class AnalyticsDataIndexer implements GroupEventListener {
 
 	private List<String[]> getUniqueGroupings(int tenantId, AggregateRequest aggregateRequest)
             throws AnalyticsIndexException, IOException {
-        if (aggregateRequest.getAggregateLevel() >= 0) {
+        if (aggregateRequest.getGroupByField() == null) {
+            return null;
+        } else if (aggregateRequest.getAggregateLevel() >= 0) {
             List<String> taxonomyShardIds = this.lookupGloballyExistingShardIds(TAXONOMY_INDEX_DATA_FS_BASE_PATH,
                     tenantId, aggregateRequest.getTableName());
             if (taxonomyShardIds.size() == 0) {
@@ -1828,11 +1830,13 @@ public class AnalyticsDataIndexer implements GroupEventListener {
         analyticsDrillDownRequest.setQuery(aggregateRequest.getQuery());
         analyticsDrillDownRequest.setRecordStartIndex(0);
         analyticsDrillDownRequest.setRecordCount(Integer.MAX_VALUE);
-        Map<String, List<String>> groupByCategory = new HashMap<>();
-        List<String> groupByValue = new ArrayList<>();
-        groupByValue.addAll(Arrays.asList(path));
-        groupByCategory.put(aggregateRequest.getGroupByField(), groupByValue);
-        analyticsDrillDownRequest.setCategoryPaths(groupByCategory);
+        if (path != null) {
+            Map<String, List<String>> groupByCategory = new HashMap<>();
+            List<String> groupByValue = new ArrayList<>();
+            groupByValue.addAll(Arrays.asList(path));
+            groupByCategory.put(aggregateRequest.getGroupByField(), groupByValue);
+            analyticsDrillDownRequest.setCategoryPaths(groupByCategory);
+        }
         return this.getDrillDownRecords(tenantId, analyticsDrillDownRequest, null, null);
     }
 
@@ -1853,12 +1857,14 @@ public class AnalyticsDataIndexer implements GroupEventListener {
         private String[] currentGrouping;
         private AnalyticsDataIndexer indexer;
         private Record currentRecord;
+        private boolean singleAggregatedRecordReturned;
         public AggregateRecordIterator(int tenantId, List<String[]> uniqueGroupings,
                                        AggregateRequest request, AnalyticsDataIndexer indexer) {
             this.request = request;
             this.tenantId = tenantId;
             this.groupings = uniqueGroupings;
             this.indexer = indexer;
+            this.singleAggregatedRecordReturned = false;
         }
 
         @Override
@@ -1867,12 +1873,18 @@ public class AnalyticsDataIndexer implements GroupEventListener {
             currentGrouping = null;
             groupings = null;
             currentRecord = null;
-
         }
 
         @Override
         public synchronized boolean hasNext() {
-            if (groupings!= null && !groupings.isEmpty()) {
+            if (groupings == null) {
+                if (!singleAggregatedRecordReturned) {
+                    currentRecord = getSingleAggregatedRecord();
+                    if (currentRecord != null) {
+                        return true;
+                    }
+                }
+            } else if (!groupings.isEmpty()) {
                 currentGrouping = groupings.get(0);
                 if (currentGrouping != null && currentGrouping.length > 0) {
                     try {
@@ -1887,7 +1899,7 @@ public class AnalyticsDataIndexer implements GroupEventListener {
                     }
                     if (currentRecord == null) {
                         groupings.remove(currentGrouping);
-                        return  this.hasNext();
+                        return this.hasNext();
                     } else {
                         return true;
                     }
@@ -1895,8 +1907,6 @@ public class AnalyticsDataIndexer implements GroupEventListener {
                     groupings.remove(currentGrouping);
                     this.hasNext();
                 }
-            } else {
-                    return false;
             }
             return false;
         }
@@ -1904,7 +1914,11 @@ public class AnalyticsDataIndexer implements GroupEventListener {
         @Override
         public synchronized Record next() {
             if (hasNext()) {
-                groupings.remove(currentGrouping);
+                if (groupings != null) {
+                    groupings.remove(currentGrouping);
+                } else {
+                    singleAggregatedRecordReturned = true;
+                }
                 Record tempRecord = currentRecord;
                 currentRecord = null;
                 return tempRecord;
@@ -1915,6 +1929,39 @@ public class AnalyticsDataIndexer implements GroupEventListener {
         @Override
         public void remove() {
             //This will not work in this iterator
+        }
+
+        /**
+         * This returns the total aggregated record from the aggregateRequest.
+         *
+         * @return a single aggregated record for the whole table.
+         */
+        private Record getSingleAggregatedRecord() {
+            Record queryResult = null;
+            try {
+                queryResult = indexer.aggregatePerGrouping(tenantId, null, request);
+            } catch (AnalyticsException e) {
+                logger.error("Failed to create single total aggregate record: " + e.getMessage(), e);
+                throw new RuntimeException("Error while creating total aggregate record: " + e.getMessage(), e);
+            }
+            // remove keys and values with the value null
+            Map<String, Object> cleanedValues = new HashMap<>();
+            Iterator it = queryResult.getValues().entrySet().iterator();
+            while (it.hasNext()) {
+                Map.Entry pair = (Map.Entry)it.next();
+                if (pair.getKey() == null || pair.getValue() == null) {
+                    continue;
+                } else {
+                    cleanedValues.put((String) pair.getKey(), pair.getValue());
+                }
+                it.remove();
+            }
+            if (cleanedValues == null) {
+                return null;
+            }
+            Record cleanedRecord = new Record(queryResult.getTenantId(), queryResult.getTableName(), cleanedValues,
+                    queryResult.getTimestamp());
+            return cleanedRecord;
         }
     }
 
