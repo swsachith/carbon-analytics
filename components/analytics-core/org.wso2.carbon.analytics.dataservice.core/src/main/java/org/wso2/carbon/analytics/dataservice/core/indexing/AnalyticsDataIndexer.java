@@ -1748,23 +1748,22 @@ public class AnalyticsDataIndexer implements GroupEventListener {
     private Record aggregatePerGrouping(int tenantId, String[] path,
                                          AggregateRequest aggregateRequest)
             throws AnalyticsException {
-        Map<String,  Number> optionalParams = new HashMap<>();
-        Map<String, AggregateFunction> perAliasAggregateFunction = initPerAliasAggregateFunctions(aggregateRequest,
-                                                                                                  optionalParams);
-        List<Iterator<Record>> iterators = this.getRecordIterators(tenantId, path, aggregateRequest);
+        Map<String,Number> optionalParams = new HashMap<>();
+        Map<String,AggregateFunction> perAliasAggregateFunction = initPerAliasAggregateFunctions(aggregateRequest,
+                optionalParams);
+        Iterator<Record> recordIterator = this.getRecordIterators(tenantId, path, aggregateRequest);
         Record aggregatedRecord = null;
-        if (!iterators.isEmpty()) {
-            Iterator<Record> iterator = IteratorUtils.chainedIterator(iterators);
-            while (iterator.hasNext()) {
-                Record record = iterator.next();
+        if (recordIterator != null) {
+            while (recordIterator.hasNext()) {
+                Record record = recordIterator.next();
                 for (AggregateField field : aggregateRequest.getFields()) {
                     Number value = (Number) record.getValue(field.getFieldName());
                     AggregateFunction function = perAliasAggregateFunction.get(field.getAlias());
                     function.process(value);
                 }
             }
-            Map<String, Object> aggregatedValues = generateAggregateRecordValues(path,
-                                                                                 aggregateRequest, perAliasAggregateFunction);
+            Map<String, Object> aggregatedValues = generateAggregateRecordValues(path, aggregateRequest,
+                    perAliasAggregateFunction);
             aggregatedRecord = new Record(tenantId, aggregateRequest.getTableName(), aggregatedValues);
         }
         return aggregatedRecord;
@@ -1803,21 +1802,17 @@ public class AnalyticsDataIndexer implements GroupEventListener {
         return perAliasAggregateFunction;
     }
 
-    private List<Iterator<Record>> getRecordIterators(int tenantId, String[] path,
-                                                      AggregateRequest aggregateRequest)
+    private Iterator<Record> getRecordIterators(int tenantId, String[] path, AggregateRequest aggregateRequest)
             throws AnalyticsException {
-        List<Iterator<Record>> iterators = new ArrayList<>();
         List<SearchResultEntry> searchResultEntries = getRecordSearchEntries(tenantId, path,  aggregateRequest);
         if (!searchResultEntries.isEmpty()) {
             List<String> recordIds = getRecordIds(searchResultEntries);
-            AnalyticsDataResponse analyticsDataResponse = this.analyticsDataService.get(tenantId, aggregateRequest.getTableName(),
-                                                                                        1, null, recordIds);
+            AnalyticsDataResponse analyticsDataResponse = this.analyticsDataService.get(tenantId,
+                    aggregateRequest.getTableName(), 1, null, recordIds);
             RecordGroup[] recordGroups = analyticsDataResponse.getRecordGroups();
-            for (RecordGroup recordGroup : recordGroups) {
-                iterators.add(this.analyticsDataService.readRecords(analyticsDataResponse.getRecordStoreName(), recordGroup));
-            }
+            return GenericUtils.recordGroupsToIterator(getAnalyticsRecordStore(), recordGroups);
         }
-        return iterators;
+        return null;
     }
 
     private List<SearchResultEntry> getRecordSearchEntries(int tenantId, String[] path,
